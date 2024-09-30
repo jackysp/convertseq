@@ -77,6 +77,9 @@ func syncSeq(db *sql.DB) {
 	for {
 		// Insert or update sequence information
 		trx, err := db.Begin()
+		if err != nil {
+			log.Fatalf("Failed to execute begin statement: %v", err)
+		}
 		_, err = trx.Exec(`REPLACE INTO test.sequence_sync (schema_name, sequence_name, create_sql)
 		SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME,
 		CASE
@@ -95,7 +98,6 @@ func syncSeq(db *sql.DB) {
 		if err != nil {
 			log.Fatalf("Failed to query sequence_sync: %v", err)
 		}
-		defer rows.Close()
 
 		for rows.Next() {
 			var nextNotCachedValue int64
@@ -109,7 +111,6 @@ func syncSeq(db *sql.DB) {
 			if err != nil {
 				log.Fatalf("Failed to execute query: %v", err)
 			}
-			defer results.Close()
 
 			for results.Next() {
 				var dbName, tableName, columnName, nextGlobalRowID, idType string
@@ -127,9 +128,6 @@ func syncSeq(db *sql.DB) {
 
 			// Directly execute the update statement
 			updateStatement := fmt.Sprintf("UPDATE test.sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
-			if err != nil {
-				log.Fatalf("Failed to execute begin statement: %v", err)
-			}
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
 				log.Fatalf("Failed to execute update statement: %v", err)
