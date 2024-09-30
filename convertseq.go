@@ -76,7 +76,8 @@ func syncSeq(db *sql.DB) {
 
 	for {
 		// Insert or update sequence information
-		_, err := db.Exec(`REPLACE INTO test.sequence_sync (schema_name, sequence_name, create_sql)
+		trx, err := db.Begin()
+		_, err = trx.Exec(`REPLACE INTO test.sequence_sync (schema_name, sequence_name, create_sql)
 		SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME,
 		CASE
 			WHEN CACHE = 0 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE NOCYCLE;')
@@ -90,7 +91,7 @@ func syncSeq(db *sql.DB) {
 		}
 
 		// Read data from sequence_sync to show table next_row_id and filter only the type is sequence
-		rows, err := db.Query("SELECT schema_name, sequence_name FROM test.sequence_sync")
+		rows, err := trx.Query("SELECT schema_name, sequence_name FROM test.sequence_sync")
 		if err != nil {
 			log.Fatalf("Failed to query sequence_sync: %v", err)
 		}
@@ -104,7 +105,7 @@ func syncSeq(db *sql.DB) {
 			}
 
 			query := fmt.Sprintf("SHOW TABLE `%s`.`%s` NEXT_ROW_ID", schemaName, sequenceName)
-			results, err := db.Query(query)
+			results, err := trx.Query(query)
 			if err != nil {
 				log.Fatalf("Failed to execute query: %v", err)
 			}
@@ -126,17 +127,15 @@ func syncSeq(db *sql.DB) {
 
 			// Directly execute the update statement
 			updateStatement := fmt.Sprintf("UPDATE test.sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
-			trx, err := db.Begin()
 			if err != nil {
 				log.Fatalf("Failed to execute begin statement: %v", err)
 			}
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
-				trx.Rollback()
 				log.Fatalf("Failed to execute update statement: %v", err)
 			}
-			trx.Commit()
 		}
+		trx.Commit()
 
 		if err := rows.Err(); err != nil {
 			log.Fatalf("Error iterating over rows: %v", err)
