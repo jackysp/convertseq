@@ -2,7 +2,7 @@
 
 TiCDC doesn't support to sync sequences, this tool is used to sync sequences to the downstream TiDB cluster by convert it to a metadata table. When you want to restore the sequences, you can use this tool to restore the sequences from the metadata table.
 
-Thanks [@Damon-Guo](https://github.com/Damon-Guo) for the idea and the implementation of the sync and restore part.
+Thanks [@Damon-Guo](https://github.com/Damon-Guo) for the idea of the sync and restore part.
 
 ## Usage
 
