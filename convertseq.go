@@ -94,7 +94,7 @@ func syncSeq(db *sql.DB) {
 		}
 
 		// Read data from sequence_sync to show table next_row_id and filter only the type is sequence
-		rows, err := trx.Query("SELECT schema_name, sequence_name FROM test.sequence_sync")
+		rows, err := db.Query("SELECT schema_name, sequence_name FROM test.sequence_sync")
 		if err != nil {
 			log.Fatalf("Failed to query sequence_sync: %v", err)
 		}
@@ -107,7 +107,7 @@ func syncSeq(db *sql.DB) {
 			}
 
 			query := fmt.Sprintf("SHOW TABLE `%s`.`%s` NEXT_ROW_ID", schemaName, sequenceName)
-			results, err := trx.Query(query)
+			results, err := db.Query(query)
 			if err != nil {
 				log.Fatalf("Failed to execute query: %v", err)
 			}
@@ -119,12 +119,12 @@ func syncSeq(db *sql.DB) {
 				}
 				if idType == "SEQUENCE" {
 					nextNotCachedValue, _ = strconv.ParseInt(nextGlobalRowID, 10, 64)
-					fmt.Printf("Next row ID for sequence %s.%s: %d\n", schemaName, sequenceName, nextNotCachedValue)
 				}
 			}
 			if err := results.Err(); err != nil {
 				log.Fatalf("Error iterating over results: %v", err)
 			}
+			results.Close()
 
 			// Directly execute the update statement
 			updateStatement := fmt.Sprintf("UPDATE test.sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
@@ -134,10 +134,12 @@ func syncSeq(db *sql.DB) {
 			}
 		}
 		trx.Commit()
+		fmt.Printf("All sequences updated at %s.\n", time.Now().Format("2006-01-02 15:04:05"))
 
 		if err := rows.Err(); err != nil {
 			log.Fatalf("Error iterating over rows: %v", err)
 		}
+		rows.Close()
 
 		time.Sleep(*syncInterval)
 	}
