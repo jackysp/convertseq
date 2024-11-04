@@ -62,16 +62,11 @@ func main() {
 
 	switch *mode {
 	case "sync":
-		//dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *syncUser, *syncPasswd, *syncIP, *syncPort)
 		//added Schema parameter by Swee
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/", *syncUser, *syncPasswd, *syncIP, *syncPort)
 	case "restore":
-		//dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *restoreUser, *restorePasswd, *restoreIP, *restorePort)
 		//added Schema parameter by Swee
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/", *restoreUser, *restorePasswd, *restoreIP, *restorePort)
-	default:
-		fmt.Printf("Invalid mode: %s\n", *mode)
-		os.Exit(1)
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -172,7 +167,7 @@ func syncSeq(db *sql.DB, schema string) {
 }
 
 func restoreSeq(db *sql.DB, schema string) {
-	// Retrieve desired sequences from test.sequence_sync
+	// Retrieve desired sequences from sequence_sync
 	desiredSequences := make(map[string]string)
 	rows, err := db.Query("SELECT CONCAT(schema_name, '.', sequence_name) AS seq_name, create_sql FROM " + schema + ".sequence_sync;")
 	if err != nil {
@@ -240,7 +235,7 @@ func restoreSeq(db *sql.DB, schema string) {
 
 	// Set current values for sequences with current_value
 	var setvalStatements []string
-	rows, err = db.Query("SELECT CONCAT('SELECT setval(''', schema_name, '.', sequence_name, ''', ', current_value, ');') FROM test.sequence_sync WHERE current_value IS NOT NULL;")
+	rows, err = db.Query("SELECT CONCAT('SELECT setval(''', schema_name, '.', sequence_name, ''', ', current_value, ');') FROM " + schema + ".sequence_sync WHERE current_value IS NOT NULL;")
 	if err != nil {
 		log.Fatalf("Failed to execute query: %v", err)
 	}
