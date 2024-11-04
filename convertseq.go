@@ -31,14 +31,14 @@ var (
 )
 
 const sequenceQuery = `
-SELECT CONCAT(sequence_schema, '.', sequence_name) AS seq_name,
-    CASE
-        WHEN cache_value = 0 AND is_cyclic = 'NO' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' NOCACHE NOCYCLE;')
-        WHEN cache_value > 0 AND is_cyclic = 'NO' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' CACHE ', cache_value, ' NOCYCLE;')
-        WHEN cache_value = 0 AND is_cyclic = 'YES' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' NOCACHE CYCLE;')
-        WHEN cache_value > 0 AND is_cyclic = 'YES' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' CACHE ', cache_value, ' CYCLE;')
-    END AS create_sql
-FROM information_schema.sequences;
+SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME,
+        CASE
+            WHEN CACHE = 0 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE NOCYCLE;')
+            WHEN CACHE = 1 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' CACHE ', CACHE_VALUE, ' NOCYCLE;')
+            WHEN CACHE = 0 AND CYCLE = 1 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE CYCLE;')
+            WHEN CACHE = 1 AND CYCLE = 1 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' CACHE ', CACHE_VALUE, ' CYCLE;')
+        END AS create_sql
+        FROM information_schema.sequences;
 `
 
 func main() {
