@@ -193,11 +193,12 @@ func restoreSeq(db *sql.DB, schema string) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var seqName, createSQL string
-		if err := rows.Scan(&seqName, &createSQL); err != nil {
+		var seqSchema, seqName, createSQL string
+		if err := rows.Scan(&seqSchema, &seqName, &createSQL); err != nil {
 			log.Fatalf("Failed to scan result: %v", err)
 		}
-		existingSequences[seqName] = createSQL
+		fullSeqName := seqSchema + "." + seqName
+		existingSequences[fullSeqName] = createSQL
 	}
 	if err := rows.Err(); err != nil {
 		log.Fatalf("Error iterating over results: %v", err)
