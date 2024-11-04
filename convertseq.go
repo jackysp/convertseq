@@ -24,10 +24,23 @@ var (
 	restorePort    = flag.Int("restorePort", 4000, "Restore port")
 	restorePasswd  = flag.String("restorePasswd", "admin", "Restore password")
 	restoreWorkers = flag.Int("restoreWorkers", 5, "Number of workers for restore operation")
+	//added Schema parameter by Swee
+	syncSchema	   = flag.String("syncSchema","test","Sync Schema")
+	restoreSchema  = flag.String("restoreSchema","test","Restore Schema")
+	logFilePath    = flag.String("logFilePath", "error.log", "Path to error log file")
 )
 
 func main() {
 	flag.Parse()
+
+	// Added by Swee: Set the log output to the file
+	logFile, err := os.OpenFile(*logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		fmt.Printf("Failed to open log file: %v\n", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile) 
 
 	if *mode != "sync" && *mode != "restore" {
 		fmt.Println("Usage: go run main.go -mode=<sync|restore>")
@@ -38,9 +51,13 @@ func main() {
 
 	switch *mode {
 	case "sync":
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *syncUser, *syncPasswd, *syncIP, *syncPort)
+		//dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *syncUser, *syncPasswd, *syncIP, *syncPort)
+		//added Schema parameter by Swee
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/", *syncUser, *syncPasswd, *syncIP, *syncPort)
 	case "restore":
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *restoreUser, *restorePasswd, *restoreIP, *restorePort)
+		//dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/test", *restoreUser, *restorePasswd, *restoreIP, *restorePort)
+		//added Schema parameter by Swee
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/", *restoreUser, *restorePasswd, *restoreIP, *restorePort)
 	default:
 		fmt.Printf("Invalid mode: %s\n", *mode)
 		os.Exit(1)
@@ -54,15 +71,22 @@ func main() {
 
 	switch *mode {
 	case "sync":
-		syncSeq(db)
+		syncSeq(db,*syncSchema)
 	case "restore":
-		restoreSeq(db)
+		restoreSeq(db,*restoreSchema)
 	}
 }
 
-func syncSeq(db *sql.DB) {
+func syncSeq(db *sql.DB , schema string) {
+	//add CREATE DATABASE by Muhaira
+	_, err1 := db.Exec(fmt.Sprintf(`CREATE DATABASE IF NOT EXISTS `+ schema +`;`))
+	if err1 != nil {
+		log.Fatalf("Failed to create database: %v", err1)
+	}
+
+
 	// Create table if not exists
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS test.sequence_sync (
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS ` + schema + `.sequence_sync (
         schema_name varchar(64) NOT NULL,
         sequence_name varchar(64) NOT NULL,
         current_value BIGINT UNSIGNED NULL,
@@ -80,7 +104,7 @@ func syncSeq(db *sql.DB) {
 		if err != nil {
 			log.Fatalf("Failed to execute begin statement: %v", err)
 		}
-		_, err = trx.Exec(`REPLACE INTO test.sequence_sync (schema_name, sequence_name, create_sql)
+		_, err = trx.Exec(`REPLACE INTO ` + schema + `.sequence_sync (schema_name, sequence_name, create_sql)
 		SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME,
 		CASE
 			WHEN CACHE = 0 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE NOCYCLE;')
@@ -94,7 +118,7 @@ func syncSeq(db *sql.DB) {
 		}
 
 		// Read data from sequence_sync to show table next_row_id and filter only the type is sequence
-		rows, err := db.Query("SELECT schema_name, sequence_name FROM test.sequence_sync")
+		rows, err := db.Query("SELECT schema_name, sequence_name FROM " + schema + ".sequence_sync")
 		if err != nil {
 			log.Fatalf("Failed to query sequence_sync: %v", err)
 		}
@@ -127,7 +151,7 @@ func syncSeq(db *sql.DB) {
 			results.Close()
 
 			// Directly execute the update statement
-			updateStatement := fmt.Sprintf("UPDATE test.sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
+			updateStatement := fmt.Sprintf("UPDATE " + schema +".sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
 				log.Fatalf("Failed to execute update statement: %v", err)
@@ -145,9 +169,9 @@ func syncSeq(db *sql.DB) {
 	}
 }
 
-func restoreSeq(db *sql.DB) {
+func restoreSeq(db *sql.DB,schema string) {
 	// Generate DROP SEQUENCE statements for existing sequences that need to be dropped
-	dropStatements := getSQLStatements(db, "SELECT CONCAT('DROP SEQUENCE ', sequences.SEQUENCE_SCHEMA, '.', sequences.SEQUENCE_NAME, ';') FROM information_schema.sequences JOIN test.sequence_sync ON sequences.SEQUENCE_SCHEMA = sequence_sync.schema_name AND sequences.SEQUENCE_NAME = sequence_sync.sequence_name;")
+	dropStatements := getSQLStatements(db, "SELECT CONCAT('DROP SEQUENCE ', sequences.SEQUENCE_SCHEMA, '.', sequences.SEQUENCE_NAME, ';') FROM information_schema.sequences JOIN " + schema +".sequence_sync ON sequences.SEQUENCE_SCHEMA = sequence_sync.schema_name AND sequences.SEQUENCE_NAME = sequence_sync.sequence_name;")
 	if len(dropStatements) == 0 {
 		fmt.Println("No sequences to drop.")
 	} else {
@@ -156,7 +180,7 @@ func restoreSeq(db *sql.DB) {
 	}
 
 	// Execute restore operations from sequence_sync
-	sqlStatements := getSQLStatements(db, "SELECT create_sql FROM test.sequence_sync;")
+	sqlStatements := getSQLStatements(db, "SELECT create_sql FROM " + schema +".sequence_sync;")
 	if len(sqlStatements) == 0 {
 		fmt.Println("No sequences to restore.")
 	} else {
@@ -165,7 +189,7 @@ func restoreSeq(db *sql.DB) {
 	}
 
 	// Setting current value for sequence
-	setvalStatements := getSQLStatements(db, "SELECT CONCAT('SELECT setval(', schema_name, '.', sequence_name, ',', current_value, ');') FROM test.sequence_sync WHERE current_value IS NOT NULL;")
+	setvalStatements := getSQLStatements(db, "SELECT CONCAT('SELECT setval(', schema_name, '.', sequence_name, ',', current_value, ');') FROM " + schema +".sequence_sync WHERE current_value IS NOT NULL;")
 	if len(setvalStatements) == 0 {
 		fmt.Println("No sequences to set.")
 	} else {
