@@ -236,7 +236,7 @@ func restoreSeq(db *sql.DB, schema string) {
 
 	// Set current values for sequences with current_value
 	var setvalStatements []string
-	rows, err = db.Query("SELECT CONCAT('SELECT setval(''', schema_name, '.', sequence_name, ''', ', current_value, ');') FROM " + schema + ".sequence_sync WHERE current_value IS NOT NULL;")
+	rows, err = db.Query("SELECT CONCAT('SELECT setval(', schema_name, '.', sequence_name, ', ', current_value, ');') FROM " + schema + ".sequence_sync WHERE current_value IS NOT NULL;")
 	if err != nil {
 		log.Fatalf("Failed to execute query: %v", err)
 	}
