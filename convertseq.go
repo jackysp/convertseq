@@ -14,21 +14,32 @@ import (
 
 var (
 	mode           = flag.String("mode", "", "Mode of operation: sync or restore")
-	syncUser       = flag.String("syncUser", "admin", "Sync user")
+	syncUser       = flag.String("syncUser", "root", "Sync user")
 	syncIP         = flag.String("syncIP", "127.0.0.1", "Sync IP address")
 	syncPort       = flag.Int("syncPort", 4000, "Sync port")
-	syncPasswd     = flag.String("syncPasswd", "admin", "Sync password")
+	syncPasswd     = flag.String("syncPasswd", "", "Sync password")
 	syncInterval   = flag.Duration("syncInterval", 5*time.Second, "Sync interval")
-	restoreUser    = flag.String("restoreUser", "admin", "Restore user")
+	restoreUser    = flag.String("restoreUser", "root", "Restore user")
 	restoreIP      = flag.String("restoreIP", "127.0.0.1", "Restore IP address")
 	restorePort    = flag.Int("restorePort", 4000, "Restore port")
-	restorePasswd  = flag.String("restorePasswd", "admin", "Restore password")
+	restorePasswd  = flag.String("restorePasswd", "", "Restore password")
 	restoreWorkers = flag.Int("restoreWorkers", 5, "Number of workers for restore operation")
 	//added Schema parameter by Swee
-	syncSchema	   = flag.String("syncSchema","test","Sync Schema")
-	restoreSchema  = flag.String("restoreSchema","test","Restore Schema")
-	logFilePath    = flag.String("logFilePath", "error.log", "Path to error log file")
+	syncSchema    = flag.String("syncSchema", "test", "Sync Schema")
+	restoreSchema = flag.String("restoreSchema", "test", "Restore Schema")
+	logFilePath   = flag.String("logFilePath", "error.log", "Path to error log file")
 )
+
+const sequenceQuery = `
+SELECT CONCAT(sequence_schema, '.', sequence_name) AS seq_name,
+    CASE
+        WHEN cache_value = 0 AND is_cyclic = 'NO' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' NOCACHE NOCYCLE;')
+        WHEN cache_value > 0 AND is_cyclic = 'NO' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' CACHE ', cache_value, ' NOCYCLE;')
+        WHEN cache_value = 0 AND is_cyclic = 'YES' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' NOCACHE CYCLE;')
+        WHEN cache_value > 0 AND is_cyclic = 'YES' THEN CONCAT('CREATE SEQUENCE ', sequence_schema, '.', sequence_name, ' START WITH ', start_value, ' MINVALUE ', minimum_value, ' MAXVALUE ', maximum_value, ' INCREMENT BY ', increment, ' CACHE ', cache_value, ' CYCLE;')
+    END AS create_sql
+FROM information_schema.sequences;
+`
 
 func main() {
 	flag.Parse()
@@ -40,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer logFile.Close()
-	log.SetOutput(logFile) 
+	log.SetOutput(logFile)
 
 	if *mode != "sync" && *mode != "restore" {
 		fmt.Println("Usage: go run main.go -mode=<sync|restore>")
@@ -71,19 +82,18 @@ func main() {
 
 	switch *mode {
 	case "sync":
-		syncSeq(db,*syncSchema)
+		syncSeq(db, *syncSchema)
 	case "restore":
-		restoreSeq(db,*restoreSchema)
+		restoreSeq(db, *restoreSchema)
 	}
 }
 
-func syncSeq(db *sql.DB , schema string) {
+func syncSeq(db *sql.DB, schema string) {
 	//add CREATE DATABASE by Muhaira
-	_, err1 := db.Exec(fmt.Sprintf(`CREATE DATABASE IF NOT EXISTS `+ schema +`;`))
+	_, err1 := db.Exec(fmt.Sprintf(`CREATE DATABASE IF NOT EXISTS ` + schema + `;`))
 	if err1 != nil {
 		log.Fatalf("Failed to create database: %v", err1)
 	}
-
 
 	// Create table if not exists
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS ` + schema + `.sequence_sync (
@@ -104,15 +114,7 @@ func syncSeq(db *sql.DB , schema string) {
 		if err != nil {
 			log.Fatalf("Failed to execute begin statement: %v", err)
 		}
-		_, err = trx.Exec(`REPLACE INTO ` + schema + `.sequence_sync (schema_name, sequence_name, create_sql)
-		SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME,
-		CASE
-			WHEN CACHE = 0 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE NOCYCLE;')
-			WHEN CACHE = 1 AND CYCLE = 0 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' CACHE ', CACHE_VALUE, ' NOCYCLE;')
-			WHEN CACHE = 0 AND CYCLE = 1 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' NOCACHE CYCLE;')
-			WHEN CACHE = 1 AND CYCLE = 1 THEN CONCAT('CREATE SEQUENCE ', SEQUENCE_SCHEMA, '.', SEQUENCE_NAME, ' START WITH ', START, ' MINVALUE ', MIN_VALUE, ' MAXVALUE ', MAX_VALUE, ' INCREMENT BY ', INCREMENT, ' CACHE ', CACHE_VALUE, ' CYCLE;')
-		END AS create_sql
-		FROM information_schema.sequences;`)
+		_, err = trx.Exec(`REPLACE INTO ` + schema + `.sequence_sync (schema_name, sequence_name, create_sql) ` + sequenceQuery)
 		if err != nil {
 			log.Fatalf("Failed to insert or update sequence information: %v", err)
 		}
@@ -151,7 +153,7 @@ func syncSeq(db *sql.DB , schema string) {
 			results.Close()
 
 			// Directly execute the update statement
-			updateStatement := fmt.Sprintf("UPDATE " + schema +".sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
+			updateStatement := fmt.Sprintf("UPDATE "+schema+".sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
 				log.Fatalf("Failed to execute update statement: %v", err)
@@ -169,57 +171,96 @@ func syncSeq(db *sql.DB , schema string) {
 	}
 }
 
-func restoreSeq(db *sql.DB,schema string) {
-	// Generate DROP SEQUENCE statements for existing sequences that need to be dropped
-	dropStatements := getSQLStatements(db, "SELECT CONCAT('DROP SEQUENCE ', sequences.SEQUENCE_SCHEMA, '.', sequences.SEQUENCE_NAME, ';') FROM information_schema.sequences JOIN " + schema +".sequence_sync ON sequences.SEQUENCE_SCHEMA = sequence_sync.schema_name AND sequences.SEQUENCE_NAME = sequence_sync.sequence_name;")
-	if len(dropStatements) == 0 {
-		fmt.Println("No sequences to drop.")
-	} else {
-		fmt.Println("Dropping old sequences...")
-		executeSQLStatements(db, dropStatements)
-	}
-
-	// Execute restore operations from sequence_sync
-	sqlStatements := getSQLStatements(db, "SELECT create_sql FROM " + schema +".sequence_sync;")
-	if len(sqlStatements) == 0 {
-		fmt.Println("No sequences to restore.")
-	} else {
-		fmt.Println("Restoring sequences...")
-		executeSQLStatements(db, sqlStatements)
-	}
-
-	// Setting current value for sequence
-	setvalStatements := getSQLStatements(db, "SELECT CONCAT('SELECT setval(', schema_name, '.', sequence_name, ',', current_value, ');') FROM " + schema +".sequence_sync WHERE current_value IS NOT NULL;")
-	if len(setvalStatements) == 0 {
-		fmt.Println("No sequences to set.")
-	} else {
-		fmt.Println("Setting sequences...")
-		executeSQLStatements(db, setvalStatements)
-	}
-}
-
-func getSQLStatements(db *sql.DB, query string) []string {
-	rows, err := db.Query(query)
+func restoreSeq(db *sql.DB, schema string) {
+	// Retrieve desired sequences from test.sequence_sync
+	desiredSequences := make(map[string]string)
+	rows, err := db.Query("SELECT CONCAT(schema_name, '.', sequence_name) AS seq_name, create_sql FROM " + schema + ".sequence_sync;")
 	if err != nil {
-		log.Fatalf("Failed to execute query: %s, error: %v", query, err)
+		log.Fatalf("Failed to execute query: %v", err)
 	}
 	defer rows.Close()
-
-	var statements []string
 	for rows.Next() {
-		var statement string
-		if err := rows.Scan(&statement); err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+		var seqName, createSQL string
+		if err := rows.Scan(&seqName, &createSQL); err != nil {
+			log.Fatalf("Failed to scan result: %v", err)
 		}
-		statements = append(statements, statement)
+		desiredSequences[seqName] = createSQL
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		log.Fatalf("Error iterating over results: %v", err)
 	}
 
-	return statements
+	// Retrieve existing sequences from information_schema.sequences
+	existingSequences := make(map[string]string)
+	rows, err = db.Query(sequenceQuery)
+	if err != nil {
+		log.Fatalf("Failed to execute query: %s, error: %v", sequenceQuery, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seqName, createSQL string
+		if err := rows.Scan(&seqName, &createSQL); err != nil {
+			log.Fatalf("Failed to scan result: %v", err)
+		}
+		existingSequences[seqName] = createSQL
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatalf("Error iterating over results: %v", err)
+	}
+
+	// Compare and update sequences
+	var desiredCreateSQLs []string
+	var existingDropSQLs []string
+	var existingCreateSQLs []string
+	for seqName, desiredCreateSQL := range desiredSequences {
+		existingCreateSQL, exists := existingSequences[seqName]
+		if !exists {
+			// Sequence doesn't exist, create it
+			desiredCreateSQLs = append(desiredCreateSQLs, desiredCreateSQL)
+		} else if existingCreateSQL != desiredCreateSQL {
+			// Sequence exists but createSQL is different, drop and recreate it
+			existingDropSQLs = append(existingDropSQLs, "DROP SEQUENCE "+seqName+";")
+			existingCreateSQLs = append(existingCreateSQLs, desiredCreateSQL)
+		}
+	}
+
+	// Optionally, drop sequences not in desiredSequences
+	var dropSQLs []string
+	for seqName := range existingSequences {
+		if _, exists := desiredSequences[seqName]; !exists {
+			dropSQLs = append(dropSQLs, "DROP SEQUENCE "+seqName+";")
+		}
+	}
+
+	// Execute DDL statements
+	executeSQLStatements(db, desiredCreateSQLs)
+	executeSQLStatements(db, existingDropSQLs)
+	executeSQLStatements(db, existingCreateSQLs)
+	executeSQLStatements(db, dropSQLs)
+
+	// Set current values for sequences with current_value
+	var setvalStatements []string
+	rows, err = db.Query("SELECT CONCAT('SELECT setval(''', schema_name, '.', sequence_name, ''', ', current_value, ');') FROM test.sequence_sync WHERE current_value IS NOT NULL;")
+	if err != nil {
+		log.Fatalf("Failed to execute query: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var stmt string
+		if err := rows.Scan(&stmt); err != nil {
+			log.Fatalf("Failed to scan result: %v", err)
+		}
+		setvalStatements = append(setvalStatements, stmt)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatalf("Error iterating over results: %v", err)
+	}
+
+	// Execute setval statements
+	executeSQLStatements(db, setvalStatements)
 }
 
+// executeSQLStatements executes SQL statements concurrently using multiple workers
 func executeSQLStatements(db *sql.DB, statements []string) {
 	numWorkers := *restoreWorkers
 	jobs := make(chan string, len(statements))
