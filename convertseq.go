@@ -258,15 +258,20 @@ func restoreSeq(db *sql.DB, schema string) {
 
 // executeSQLStatements executes SQL statements concurrently using multiple workers
 func executeSQLStatements(db *sql.DB, statements []string) {
+	type sqlExecResult struct {
+		sql string
+		err error
+	}
+
 	numWorkers := *restoreWorkers
 	jobs := make(chan string, len(statements))
-	results := make(chan error, len(statements))
+	results := make(chan sqlExecResult, len(statements))
 
 	// Worker function
-	worker := func(jobs <-chan string, results chan<- error) {
-		for sql := range jobs {
-			_, err := db.Exec(sql)
-			results <- err
+	worker := func(jobs <-chan string, results chan<- sqlExecResult) {
+		for sqlStmt := range jobs {
+			_, err := db.Exec(sqlStmt)
+			results <- sqlExecResult{sql: sqlStmt, err: err}
 		}
 	}
 
@@ -276,15 +281,16 @@ func executeSQLStatements(db *sql.DB, statements []string) {
 	}
 
 	// Send jobs to workers
-	for _, sql := range statements {
-		jobs <- sql
+	for _, sqlStmt := range statements {
+		jobs <- sqlStmt
 	}
 	close(jobs)
 
 	// Collect results
 	for i := 0; i < len(statements); i++ {
-		if err := <-results; err != nil {
-			log.Fatalf("Failed to execute SQL statement: %v", err)
+		result := <-results
+		if result.err != nil {
+			log.Fatalf("Failed to execute SQL statement '%s': %v", result.sql, result.err)
 		}
 	}
 }
