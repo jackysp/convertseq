@@ -6,19 +6,23 @@ Thanks [@Damon-Guo](https://github.com/Damon-Guo) for the idea of the sync and r
 
 ## Usage
 
-```
+```shell
 ➜  convertseq ./convertseq --help
 Usage of ./convertseq:
+  -logFilePath string
+    	Path to error log file (default "error.log")
   -mode string
     	Mode of operation: sync or restore
   -restoreIP string
     	Restore IP address (default "127.0.0.1")
   -restorePasswd string
-    	Restore password (default "admin")
+    	Restore password
   -restorePort int
     	Restore port (default 4000)
+  -restoreSchema string
+    	Restore Schema (default "test")
   -restoreUser string
-    	Restore user (default "admin")
+    	Restore user (default "root")
   -restoreWorkers int
     	Number of workers for restore operation (default 5)
   -syncIP string
@@ -26,21 +30,23 @@ Usage of ./convertseq:
   -syncInterval duration
     	Sync interval (default 5s)
   -syncPasswd string
-    	Sync password (default "admin")
+    	Sync password
   -syncPort int
     	Sync port (default 4000)
+  -syncSchema string
+    	Sync Schema (default "test")
   -syncUser string
-    	Sync user (default "admin")
+    	Sync user (default "root")
 ```
 
 ## Example
 
-```
+```shell
 ➜  convertseq ./convertseq -mode sync -syncIP 127.0.0.1 -syncPort 4000 -syncUser root -syncPasswd ''               
-Next row ID for sequence test.s: 1003
-Next row ID for sequence test.s: 1003
-Next row ID for sequence test.s: 1003
-^C
+All sequences updated at 2024-11-04 17:26:11.
+All sequences updated at 2024-11-04 17:26:20.
+All sequences updated at 2024-11-04 17:26:30.
+
 ➜  convertseq ./convertseq -mode restore -restoreIP 127.0.0.1 -restorePort 4000 -restoreUser root -restorePasswd '' -restoreWorkers 1
 Dropping old sequences...
 Restoring sequences...

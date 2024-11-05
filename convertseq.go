@@ -229,9 +229,12 @@ func restoreSeq(db *sql.DB, schema string) {
 	}
 
 	// Execute DDL statements
+	fmt.Println("Creating new sequences")
 	executeSQLStatements(db, desiredCreateSQLs)
+	fmt.Println("Recreating changed sequences")
 	executeSQLStatements(db, existingDropSQLs)
 	executeSQLStatements(db, existingCreateSQLs)
+	fmt.Println("Dropping no longer needed sequences")
 	executeSQLStatements(db, dropSQLs)
 
 	// Set current values for sequences with current_value
