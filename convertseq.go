@@ -126,12 +126,11 @@ func syncSeq(db *sql.DB, schema string) {
 			if err := rows.Scan(&schemaName, &sequenceName); err != nil {
 				log.Fatalf("Failed to scan row: %v", err)
 			}
-			existingSequences[schemaName+"."+sequenceName] = true
 
 			query := fmt.Sprintf("SHOW TABLE `%s`.`%s` NEXT_ROW_ID", schemaName, sequenceName)
 			results, err := db.Query(query)
 			if err != nil {
-				log.Printf("Failed to execute query for sequence %s.%s: %v", schemaName, sequenceName, err)
+				log.Printf("Failed to show next_row_id for sequence %s.%s: %v", schemaName, sequenceName, err)
 				continue
 			}
 
@@ -150,11 +149,14 @@ func syncSeq(db *sql.DB, schema string) {
 			}
 			results.Close()
 
+			// Mark sequence as existing
+			existingSequences[schemaName+"."+sequenceName] = true
+
 			// Directly execute the update statement
 			updateStatement := fmt.Sprintf("UPDATE "+schema+".sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
-				log.Fatalf("Failed to execute update statement: %v", err)
+				log.Fatalf("Failed to update sequence value: %v", err)
 			}
 		}
 		if err := rows.Err(); err != nil {
