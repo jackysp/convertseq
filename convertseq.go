@@ -85,7 +85,7 @@ func main() {
 
 func syncSeq(db *sql.DB, schema string) {
 	//add CREATE DATABASE by Muhaira
-	_, err1 := db.Exec(fmt.Sprintf(`CREATE DATABASE IF NOT EXISTS ` + schema + `;`))
+	_, err1 := db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s;", schema))
 	if err1 != nil {
 		log.Fatalf("Failed to create database: %v", err1)
 	}
@@ -120,8 +120,8 @@ func syncSeq(db *sql.DB, schema string) {
 			log.Fatalf("Failed to query sequence_sync: %v", err)
 		}
 
+		existingSequences := make(map[string]bool)
 		for rows.Next() {
-			var nextNotCachedValue int64
 			var schemaName, sequenceName string
 			if err := rows.Scan(&schemaName, &sequenceName); err != nil {
 				log.Fatalf("Failed to scan row: %v", err)
@@ -130,9 +130,11 @@ func syncSeq(db *sql.DB, schema string) {
 			query := fmt.Sprintf("SHOW TABLE `%s`.`%s` NEXT_ROW_ID", schemaName, sequenceName)
 			results, err := db.Query(query)
 			if err != nil {
-				log.Fatalf("Failed to execute query: %v", err)
+				log.Printf("Failed to show next_row_id for sequence %s.%s: %v", schemaName, sequenceName, err)
+				continue
 			}
 
+			var nextNotCachedValue int64
 			for results.Next() {
 				var dbName, tableName, columnName, nextGlobalRowID, idType string
 				if err := results.Scan(&dbName, &tableName, &columnName, &nextGlobalRowID, &idType); err != nil {
@@ -147,20 +149,45 @@ func syncSeq(db *sql.DB, schema string) {
 			}
 			results.Close()
 
+			// Mark sequence as existing
+			existingSequences[schemaName+"."+sequenceName] = true
+
 			// Directly execute the update statement
 			updateStatement := fmt.Sprintf("UPDATE "+schema+".sequence_sync SET current_value=%d, update_time=NOW() WHERE schema_name='%s' AND sequence_name='%s';", nextNotCachedValue, schemaName, sequenceName)
 			_, err = trx.Exec(updateStatement)
 			if err != nil {
-				log.Fatalf("Failed to execute update statement: %v", err)
+				log.Fatalf("Failed to update sequence value: %v", err)
 			}
 		}
-		trx.Commit()
-		fmt.Printf("All sequences updated at %s.\n", time.Now().Format("2006-01-02 15:04:05"))
-
 		if err := rows.Err(); err != nil {
 			log.Fatalf("Error iterating over rows: %v", err)
 		}
 		rows.Close()
+
+		// Remove sequences from sequence_sync that no longer exist in the database
+		rows, err = db.Query("SELECT schema_name, sequence_name FROM " + schema + ".sequence_sync")
+		if err != nil {
+			log.Fatalf("Failed to query sequence_sync: %v", err)
+		}
+		for rows.Next() {
+			var schemaName, sequenceName string
+			if err := rows.Scan(&schemaName, &sequenceName); err != nil {
+				log.Fatalf("Failed to scan row: %v", err)
+			}
+			if !existingSequences[schemaName+"."+sequenceName] {
+				_, err = trx.Exec("DELETE FROM "+schema+".sequence_sync WHERE schema_name = ? AND sequence_name = ?", schemaName, sequenceName)
+				if err != nil {
+					log.Fatalf("Failed to delete sequence from sequence_sync: %v", err)
+				}
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Fatalf("Error iterating over rows: %v", err)
+		}
+		rows.Close()
+
+		trx.Commit()
+		fmt.Printf("All sequences updated at %s.\n", time.Now().Format("2006-01-02 15:04:05"))
 
 		time.Sleep(*syncInterval)
 	}
@@ -189,7 +216,7 @@ func restoreSeq(db *sql.DB, schema string) {
 	existingSequences := make(map[string]string)
 	rows, err = db.Query(sequenceQuery)
 	if err != nil {
-		log.Fatalf("Failed to execute query: %s, error: %v", sequenceQuery, err)
+		log.Fatalf("Failed to execute query: %v", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
